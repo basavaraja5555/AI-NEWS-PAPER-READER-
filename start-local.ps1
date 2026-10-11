@@ -1,3 +1,5 @@
+param([ValidateRange(1, 65535)][int]$Port = 8765)
+
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
 $engine = Get-Command "espeak-ng.exe" -ErrorAction SilentlyContinue
@@ -15,7 +17,8 @@ if (-not $engine) {
   }
 }
 $listener = New-Object System.Net.HttpListener
-$listener.Prefixes.Add("http://127.0.0.1:8765/")
+$listener.Prefixes.Add("http://127.0.0.1:$Port/")
+$newsCache = @{}
 
 function Send-Response {
   param(
@@ -24,10 +27,18 @@ function Send-Response {
     [string]$ContentType,
     [byte[]]$Bytes
   )
+  $Context.Response.Headers["Access-Control-Allow-Origin"] = "*"
+  $Context.Response.Headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
+  $Context.Response.Headers["Access-Control-Allow-Headers"] = "Content-Type"
+  $Context.Response.Headers["Access-Control-Allow-Private-Network"] = "true"
+  if ($StatusCode -ne 204) {
+    $Context.Response.ContentLength64 = $Bytes.Length
+  }
   $Context.Response.StatusCode = $StatusCode
   $Context.Response.ContentType = $ContentType
-  $Context.Response.ContentLength64 = $Bytes.Length
-  $Context.Response.OutputStream.Write($Bytes, 0, $Bytes.Length)
+  if ($Bytes.Length -gt 0) {
+    $Context.Response.OutputStream.Write($Bytes, 0, $Bytes.Length)
+  }
   $Context.Response.Close()
 }
 
@@ -38,9 +49,18 @@ function Send-Json {
   Send-Response -Context $Context -StatusCode $StatusCode -ContentType "application/json; charset=utf-8" -Bytes $bytes
 }
 
+function Get-FeedText {
+  param([System.Xml.XmlNode]$Item, [string]$ElementName)
+  $node = $Item.SelectSingleNode("*[local-name()='$ElementName']")
+  if (-not $node) { return "" }
+  $text = [System.Net.WebUtility]::HtmlDecode($node.InnerText)
+  $text = [System.Text.RegularExpressions.Regex]::Replace($text, "<[^>]*>", " ")
+  return [System.Text.RegularExpressions.Regex]::Replace($text, "\s+", " ").Trim()
+}
+
 try {
   $listener.Start()
-  Write-Host "Kannada Newsreader is running at http://127.0.0.1:8765/"
+  Write-Host "Current Desk is running at http://127.0.0.1:$Port/"
   if ($enginePath) {
     Write-Host "Offline speech engine found: $enginePath"
   } else {
@@ -52,12 +72,118 @@ try {
     $context = $listener.GetContext()
     $path = $context.Request.Url.AbsolutePath
 
+    if ($context.Request.HttpMethod -eq "OPTIONS") {
+      Send-Response -Context $context -StatusCode 200 -ContentType "text/plain" -Bytes ([byte[]]@())
+      continue
+    }
+
     if ($context.Request.HttpMethod -eq "GET" -and $path -eq "/api/health") {
       Send-Json -Context $context -StatusCode 200 -Value @{
         ready = [bool]$enginePath
         engine = if ($enginePath) { "eSpeak NG" } else { $null }
         language = if ($enginePath) { "Kannada" } else { $null }
         error = if ($enginePath) { $null } else { "Install eSpeak NG and restart this local reader." }
+        newsApi = "Bing News RSS and FreeJobAlert RSS"
+      }
+      continue
+    }
+
+    if ($context.Request.HttpMethod -eq "GET" -and $path -eq "/api/news") {
+      $section = [string]$context.Request.QueryString["section"]
+      if ($section -notin @("national", "international", "karnataka", "jobs")) {
+        Send-Json -Context $context -StatusCode 400 -Value @{ error = "Choose national, international, Karnataka, or jobs." }
+        continue
+      }
+      if ($newsCache.ContainsKey($section) -and ([DateTime]::UtcNow - $newsCache[$section].fetchedAt).TotalMinutes -lt 15) {
+        Send-Json -Context $context -StatusCode 200 -Value $newsCache[$section].payload
+        continue
+      }
+
+      try {
+        if ($section -eq "jobs") {
+          $feedUris = @("https://www.freejobalert.com/feed/")
+          $provider = "FreeJobAlert RSS"
+        } else {
+          $queries = switch ($section) {
+            "international" { @("world news latest", "world news today", "international news today") }
+            "karnataka" { @("Karnataka news today", "Karnataka current affairs", "Karnataka government news", "Karnataka policy development news") }
+            default { @("India national news today", "India current affairs news", "national news India today") }
+          }
+          $market = "en-IN"
+          $feedUris = @($queries | ForEach-Object {
+            $encodedQuery = [Uri]::EscapeDataString($_)
+            "https://www.bing.com/news/search?q=$encodedQuery&format=rss&mkt=$market&freshness=Week"
+          })
+          $provider = "Bing News RSS"
+        }
+
+        $articles = @()
+        $seenUrls = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        $successfulFeeds = 0
+        $lastFeedError = $null
+        foreach ($feedUri in $feedUris) {
+          if ($articles.Count -ge 10) { break }
+          try {
+            $feedResponse = Invoke-WebRequest -Uri $feedUri -TimeoutSec 30 -UseBasicParsing -Headers @{
+              "User-Agent" = "Mozilla/5.0 (compatible; CurrentDesk/1.0)"
+              "Accept" = "application/rss+xml, application/xml, text/xml"
+            }
+            [xml]$feedXml = $feedResponse.Content
+            $feedItems = @($feedXml.rss.channel.item)
+            $successfulFeeds += 1
+          } catch {
+            $lastFeedError = $_
+            continue
+          }
+
+          foreach ($feedItem in ($feedItems | Select-Object -First 50)) {
+            $publishedAt = Get-FeedText -Item $feedItem -ElementName "pubDate"
+            $publishedDate = [DateTime]::MinValue
+            if (-not [DateTime]::TryParse($publishedAt, [ref]$publishedDate)) { continue }
+            $maximumAge = if ($section -eq "jobs") { 30 } else { 7 }
+            if (([DateTime]::UtcNow - $publishedDate.ToUniversalTime()).TotalDays -gt $maximumAge) { continue }
+
+            $feedLink = Get-FeedText -Item $feedItem -ElementName "link"
+            $articleUrl = $feedLink
+            if ($feedLink -match "(?:\?|&)url=([^&]+)") {
+              $articleUrl = [Uri]::UnescapeDataString($Matches[1])
+            } elseif ($feedLink -match "^http://") {
+              $articleUrl = $feedLink -replace "^http://", "https://"
+            }
+            if ($articleUrl -notmatch "^https://" -or -not $seenUrls.Add($articleUrl)) { continue }
+            $title = Get-FeedText -Item $feedItem -ElementName "title"
+            if ([string]::IsNullOrWhiteSpace($title)) { continue }
+            $sourceNode = $feedItem.SelectSingleNode("*[local-name()='Source']")
+            $description = Get-FeedText -Item $feedItem -ElementName "description"
+            if ($description.Length -gt 600) { $description = $description.Substring(0, 597) + "..." }
+            $articles += @{
+              title = $title
+              summary = $description
+              url = $articleUrl
+              source = if ($sourceNode) { [System.Net.WebUtility]::HtmlDecode($sourceNode.InnerText) } else { ([Uri]$articleUrl).Host }
+              country = switch ($section) {
+                "international" { "International" }
+                "karnataka" { "Karnataka" }
+                default { "India" }
+              }
+              publishedAt = $publishedAt
+            }
+            if ($articles.Count -ge 10) { break }
+          }
+        }
+        if ($successfulFeeds -eq 0 -and $lastFeedError) { throw $lastFeedError }
+        $articles = @($articles | Sort-Object { [DateTime]::Parse($_.publishedAt) } -Descending | Select-Object -First 10)
+        $payload = @{
+          section = $section
+          provider = $provider
+          fetchedAt = [DateTime]::UtcNow.ToString("o")
+          items = $articles
+        }
+        $newsCache[$section] = @{ fetchedAt = [DateTime]::UtcNow; payload = $payload }
+        Send-Json -Context $context -StatusCode 200 -Value $payload
+      } catch {
+        $message = "The public news API is temporarily unavailable or rate-limited. Wait a moment and refresh."
+        Send-Json -Context $context -StatusCode 502 -Value @{ error = $message }
       }
       continue
     }
