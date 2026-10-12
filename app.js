@@ -9,6 +9,8 @@ const toast = document.querySelector("#toast");
 const storageKey = "current-desk-stories-v1";
 const maximumSavedStories = 1000;
 const maximumOnlineItems = 10;
+const maximumFetchedOnlineItems = 50;
+const languageStorageKey = "current-desk-language-v1";
 const pdfJsSources = [
   {
     library: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js",
@@ -38,8 +40,349 @@ let pdfJsLoadPromise;
 let tesseractLoadPromise;
 let zipLoadPromise;
 let activeOnlineSection = "national";
+let activeOnlinePage = 1;
 let onlineRequestInProgress = false;
 const onlineCache = new Map();
+const translations = {
+  en: {
+    studyDesk: "STUDY DESK",
+    studyDeskViews: "Study desk views",
+    examPreparation: "UPSC + KARNATAKA KPSC",
+    onlineUpdates: "Online updates",
+    pdfImports: "PDF imports",
+    localSourced: "Local + sourced",
+    privacyDescription: "Imported files stay in this browser. Online headlines link to their publishers and feeds.",
+    basavaStudyDesk: "Basava's study desk",
+    currentAffairs: "Current affairs",
+    languageLabel: "Language",
+    onThisDevice: "On this device",
+    heroLineOne: "Today's news.",
+    heroLineTwo: "Tomorrow's advantage.",
+    heroDescription: "Stay exam-ready with national and global news, Karnataka updates, and government job alerts—all in one study desk for UPSC and Karnataka KPSC.",
+    freshHeadlines: "10 HEADLINES PER PAGE · PUBLIC RSS FEEDS",
+    dailyBriefing: "The daily briefing",
+    refresh: "↻ Refresh",
+    onlineCategory: "Online update category",
+    national: "National",
+    international: "International",
+    karnataka: "Karnataka",
+    karnatakaCurrentAffairs: "Karnataka current affairs",
+    governmentJobs: "Govt jobs",
+    jobs: "Jobs",
+    onlineDisclaimer: "National, international and Karnataka headlines use Bing News RSS; job listings use FreeJobAlert RSS and are not official vacancy notices. Feeds may return fewer than 10 relevant updates. Confirm dates, eligibility and application links on official recruitment sites. Article summaries come from their feed; open the linked publisher to verify context.",
+    upscRecruitment: "UPSC recruitment",
+    karnatakaPsc: "Karnataka PSC",
+    sscNotices: "SSC notices",
+    careerService: "National Career Service",
+    importFiles: "Import files",
+    importDescription: "Optional: select newspaper PDFs or PowerPoint presentations, or import Telegram HTML and JSON exports.",
+    chooseFiles: "Choose files",
+    fileHelp: "PDF / PPTX / HTML / JSON / text · Files stay in your browser · Nothing is uploaded",
+    clearSaved: "Clear saved posts",
+    pdfPages: "PDF pages",
+    allPages: "All pages",
+    pageRangeHelp: "Optional: enter pages like 1-5,8. Blank imports every page. Only selected pages are replaced when you reimport.",
+    importHelpTitle: "How to import newspapers and Telegram exports",
+    importStepOne: "Click Choose files. In the file picker, open Downloads, select PDFs, PPTX files, or supported exports, and click Open. Optionally enter a PDF page range such as 1-5,8; leave it blank to import all pages.",
+    importStepTwo: "Selectable PDF text is extracted page by page. PPTX slide text is extracted locally, with each readable slide added as a study story. Images embedded in slides are not OCR-read; older .ppt files should be saved as .pptx first.",
+    importStepThree: "Scanned PDFs are rendered temporarily in your browser for OCR. Low-confidence text, common page headers and footers, and obvious ad blocks are filtered; the remaining text is grouped into best-effort article cards. Only recognised text is saved, not page images; pages are saved as they finish. Reimporting replaces only the selected pages from that PDF and preserves the others. Some ads or scan errors may remain.",
+    importStepFour: "The OCR engine and language models download from public CDNs the first time; the newspaper PDF itself stays on your device. First-time OCR can be slow.",
+    importStepFive: "For Telegram newspaper posts: in Telegram Desktop open Settings → Advanced → Export Telegram data, export selected chats as JSON or HTML, then import those files here.",
+    importPrivacy: "This page cannot scan Downloads by itself. Choose only files you want to import. Files are processed in your browser and are not uploaded. Online headlines use free public Bing News RSS and FreeJobAlert RSS feeds through the local server; opening a headline takes you to its publisher. Start start-local.ps1 to enable online updates and open http://127.0.0.1:8765/. PDF.js, OCR files, and the PPTX zip parser load from public CDNs.",
+    yourImportedNews: "YOUR IMPORTED NEWS",
+    downloadBrief: "↓ Download brief",
+    itemsSaved: "ITEMS SAVED",
+    upscMatches: "UPSC TOPIC MATCHES",
+    karnatakaMentions: "KARNATAKA MENTIONS",
+    searchNews: "Search imported news...",
+    filterByExam: "Filter by exam",
+    allNews: "All news",
+    upsc: "UPSC",
+    karnatakaKpsc: "Karnataka KPSC",
+    emptyTitle: "Your daily brief starts with a newspaper or presentation",
+    emptyDescription: "Choose an English or Kannada newspaper PDF, or a PPTX presentation. Scanned newspaper text is split into best-effort article cards; presentation slides use their title and text. Topic tags are keyword suggestions, not verified exam classifications.",
+    importDisclaimer: "Exam/topic labels are keyword matches and Karnataka mentions, not verified exam relevance. OCR article grouping is best-effort; check the source paper for exact wording and context.",
+    dashboardLabel: "Current affairs dashboard",
+    footerPrivacy: "Basava Kademane Study Desk · Files stay on this device",
+    prepareWith: "PREPARE WITH",
+    purpose: "PURPOSE",
+    onlineJobsEmpty: "No recent recruitment news mentions were returned. Use the official recruitment portals above to check open notices.",
+    onlineEmpty: "No headlines were returned for this section. Try refreshing later.",
+    previousPage: "Previous",
+    nextPage: "Next",
+    pageNumber: "Page {page}",
+    pageCount: "Page {page} of {total}",
+    headlinePages: "Headline pages",
+    chatTitle: "Ask ChatGPT",
+    chatDescription: "Write a question and continue it in ChatGPT. This study desk stays open in this tab.",
+    chatPlaceholder: "Ask about current affairs or your studies…",
+    chatSend: "Continue in ChatGPT",
+    chatPrivacy: "Your prompt will be sent to ChatGPT when you continue. ChatGPT replies in its own tab.",
+    readingFile: "Reading {file} locally…",
+    scannedPages: "Scanned or font-encoded pages found in {file}. Loading {language} OCR…",
+    loadingOcrModel: "Loading {language} OCR model for {file}…",
+    ocrProgress: "OCR in progress: {file}, page {page} of {total} — {status}{progress}",
+    renderingPage: "Rendering scanned page {page} of {total} for local OCR…",
+    processingFile: "Reading {file}: {unit} {page} of {total} processed · {count} item(s) saved so far.",
+    importToast: "{summary} {error}",
+    savedStoriesCleared: "Saved stories cleared.",
+    clearConfirm: "Clear all imported stories saved in this browser? This cannot be undone.",
+    clearStorageFull: "Browser storage is full. Download your brief and clear some saved stories.",
+    saveFailure: "Imported stories could not all be saved. Download your brief before leaving.",
+    fullExtractedText: "Read full extracted text",
+    kannadaLanguage: "ಕನ್ನಡ · Kannada",
+    upscRelevant: "UPSC-relevant",
+    kpscKarnatakaLink: "KPSC · Karnataka link",
+    kpscGeneral: "KPSC · General",
+    noStoriesMatch: "No stories match these filters",
+    tryDifferentFilters: "Try another search or switch the exam filter.",
+    emptyBriefTitle: "Your daily brief starts with a newspaper or presentation",
+    chooseNewspaper: "Choose an English or Kannada newspaper PDF, or a PPTX presentation. Scanned newspaper text is split into best-effort article cards; presentation slides use their title and text. Topic tags are keyword suggestions, not verified exam classifications.",
+    searchUpdates: "Searching recent {section} updates through public RSS feeds…",
+    updatedItems: "Updated {date} · {count} item(s) · {provider}",
+    updatedHeadlines: "Updated {date} · {count} headline(s)",
+    onlineLoadError: "Could not load online updates: {error} Start start-local.ps1 and refresh.",
+    clearConfirm: "Clear all imported stories saved in this browser? This cannot be undone.",
+    cleared: "Saved stories cleared.",
+    noImportedYet: "No newspaper files imported yet.",
+    readFile: "Reading {file} locally…",
+    scannedPages: "Scanned or font-encoded pages found in {file}. Loading {language} OCR…",
+    loadingOcr: "Loading {language} OCR model for {file}…",
+    ocrProgress: "OCR in progress: {file}, page {page} of {total} — {status}{progress}",
+    renderingPage: "Rendering scanned page {page} of {total} for local OCR…",
+    processingFile: "Reading {file}: {unit} {page} of {total} processed · {count} item(s) saved so far.",
+    importSummary: "{count} new item(s) imported{duplicates}{failures}.",
+    duplicateSummary: "; {count} duplicate(s) skipped",
+    failedFiles: "; {count} file(s) need attention",
+    paperPagesLoaded: "{count} saved newspaper page(s) loaded from this browser.",
+    clearStorageFull: "Browser storage is full. Download your brief and clear some saved stories.",
+    saveFailure: "Imported stories could not all be saved. Download your brief before leaving.",
+    importToast: "{summary} {error}",
+    dateMissing: "Date not included in export",
+    revisionFocus: "Revision focus: identify the issue, relevant institution or policy, and its impact on Karnataka.",
+    widerRevisionFocus: "Revision focus: identify the issue, relevant institution or policy, and its wider public impact.",
+    briefTitle: "Daily Current Affairs",
+    locallyExtractedNote: "Locally extracted newspaper, presentation, or Telegram text with keyword-based exam tags. Scanned newspaper articles are grouped heuristically; these are not AI-generated summaries or verified facts.",
+    sourceLabel: "Source:",
+    topicsLabel: "Topics:",
+    examFocusLabel: "Exam focus:",
+    upscFocus: "UPSC-relevant",
+    generalNews: "General news",
+    karnatakaLink: "Karnataka KPSC (Karnataka link)",
+    kpscGeneralFocus: "Karnataka KPSC (general)",
+    polityTopic: "Polity & governance",
+    economyTopic: "Economy",
+    environmentTopic: "Environment",
+    scienceTopic: "Science & technology",
+    internationalRelationsTopic: "International relations",
+    societyTopic: "Society & health",
+    securityTopic: "Security",
+    schemesTopic: "Schemes & public policy",
+  },
+  kn: {
+    studyDesk: "ಅಧ್ಯಯನ ಕೇಂದ್ರ",
+    studyDeskViews: "ಅಧ್ಯಯನ ವಿಭಾಗಗಳು",
+    examPreparation: "UPSC + ಕರ್ನಾಟಕ KPSC",
+    onlineUpdates: "ಆನ್‌ಲೈನ್ ಸುದ್ದಿ",
+    pdfImports: "PDF ಆಮದು",
+    localSourced: "ಸ್ಥಳೀಯ ಮತ್ತು ಮೂಲಸಹಿತ",
+    privacyDescription: "ಆಮದು ಮಾಡಿದ ಕಡತಗಳು ಈ ಬ್ರೌಸರ್‌ನಲ್ಲೇ ಇರುತ್ತವೆ. ಆನ್‌ಲೈನ್ ಸುದ್ದಿಗಳು ಮೂಲ ಪ್ರಕಾಶಕರಿಗೆ ಕೊಂಡಿಯಾಗಿವೆ.",
+    basavaStudyDesk: "ಬಸವರ ಅಧ್ಯಯನ ಕೇಂದ್ರ",
+    currentAffairs: "ಪ್ರಚಲಿತ ವಿದ್ಯಮಾನಗಳು",
+    languageLabel: "ಭಾಷೆ",
+    onThisDevice: "ಈ ಸಾಧನದಲ್ಲಿ",
+    heroLineOne: "ಇಂದಿನ ಸುದ್ದಿ.",
+    heroLineTwo: "ನಾಳೆಯ ಯಶಸ್ಸಿಗೆ.",
+    heroDescription: "UPSC ಮತ್ತು ಕರ್ನಾಟಕ KPSC ತಯಾರಿಗಾಗಿ ರಾಷ್ಟ್ರೀಯ ಹಾಗೂ ಜಾಗತಿಕ ಸುದ್ದಿಗಳು, ಕರ್ನಾಟಕದ ಅಪ್‌ಡೇಟ್‌ಗಳು ಮತ್ತು ಸರ್ಕಾರಿ ಉದ್ಯೋಗ ಮಾಹಿತಿಯನ್ನು ಒಂದೇ ಸ್ಥಳದಲ್ಲಿ ಪಡೆಯಿರಿ.",
+    freshHeadlines: "ಪ್ರತಿ ಪುಟದಲ್ಲಿ 10 ಸುದ್ದಿಗಳು · ಸಾರ್ವಜನಿಕ RSS ಫೀಡ್‌ಗಳು",
+    dailyBriefing: "ಇಂದಿನ ಸುದ್ದಿ ಸಂಗ್ರಹ",
+    refresh: "↻ ಮರುಲೋಡ್",
+    onlineCategory: "ಆನ್‌ಲೈನ್ ಸುದ್ದಿ ವಿಭಾಗ",
+    national: "ರಾಷ್ಟ್ರೀಯ",
+    international: "ಅಂತರರಾಷ್ಟ್ರೀಯ",
+    karnatakaCurrentAffairs: "ಕರ್ನಾಟಕ ಪ್ರಚಲಿತ ವಿದ್ಯಮಾನಗಳು",
+    governmentJobs: "ಸರ್ಕಾರಿ ಉದ್ಯೋಗಗಳು",
+    onlineDisclaimer: "ರಾಷ್ಟ್ರೀಯ, ಅಂತರರಾಷ್ಟ್ರೀಯ ಮತ್ತು ಕರ್ನಾಟಕದ ಸುದ್ದಿಗಳು Bing News RSS‌ನಿಂದ ಬರುತ್ತವೆ. ಉದ್ಯೋಗ ಸುದ್ದಿಗಳು ಅಧಿಕೃತ ನೇಮಕಾತಿ ಪ್ರಕಟಣೆಗಳಲ್ಲ. ದಿನಾಂಕ, ಅರ್ಹತೆ ಮತ್ತು ಅರ್ಜಿ ವಿವರಗಳನ್ನು ಅಧಿಕೃತ ತಾಣಗಳಲ್ಲಿ ಪರಿಶೀಲಿಸಿ. ಸುದ್ದಿಯ ಸಾರಾಂಶ ಮೂಲ ಫೀಡ್‌ನಿಂದ ಬಂದಿದೆ; ಸಂದರ್ಭ ಪರಿಶೀಲಿಸಲು ಪ್ರಕಾಶಕರ ಕೊಂಡಿಯನ್ನು ತೆರೆಯಿರಿ.",
+    previousPage: "ಹಿಂದಿನ",
+    nextPage: "ಮುಂದೆ",
+    pageNumber: "ಪುಟ {page}",
+    pageCount: "{total}ರಲ್ಲಿ {page}ನೇ ಪುಟ",
+    headlinePages: "ಸುದ್ದಿ ಪುಟಗಳು",
+    chatTitle: "ChatGPT ಅನ್ನು ಕೇಳಿ",
+    chatDescription: "ಪ್ರಶ್ನೆಯನ್ನು ಬರೆಯಿರಿ ಮತ್ತು ChatGPT ನಲ್ಲಿ ಮುಂದುವರಿಸಿ. ಈ ಅಧ್ಯಯನ ಪುಟ ಇದೇ ಟ್ಯಾಬ್‌ನಲ್ಲಿ ತೆರೆದಿರುತ್ತದೆ.",
+    chatPlaceholder: "ಪ್ರಚಲಿತ ವಿದ್ಯಮಾನಗಳು ಅಥವಾ ಅಧ್ಯಯನದ ಬಗ್ಗೆ ಕೇಳಿ…",
+    chatSend: "ChatGPT ನಲ್ಲಿ ಮುಂದುವರಿಸಿ",
+    chatPrivacy: "ಮುಂದುವರಿಸಿದಾಗ ನಿಮ್ಮ ಪ್ರಶ್ನೆ ChatGPT ಗೆ ಕಳುಹಿಸಲಾಗುತ್ತದೆ. ಉತ್ತರ ChatGPT ನ ಸ್ವಂತ ಟ್ಯಾಬ್‌ನಲ್ಲಿ ಬರುತ್ತದೆ.",
+    upscRecruitment: "UPSC ನೇಮಕಾತಿ",
+    karnatakaPsc: "ಕರ್ನಾಟಕ ಲೋಕಸೇವಾ ಆಯೋಗ",
+    sscNotices: "SSC ಪ್ರಕಟಣೆಗಳು",
+    careerService: "ರಾಷ್ಟ್ರೀಯ ವೃತ್ತಿ ಸೇವೆ",
+    importFiles: "ಕಡತಗಳನ್ನು ಆಮದು ಮಾಡಿ",
+    importDescription: "ಐಚ್ಛಿಕವಾಗಿ ಪತ್ರಿಕೆಗಳ PDF, PowerPoint ಪ್ರಸ್ತುತಿಗಳು ಅಥವಾ Telegram HTML/JSON ಕಡತಗಳನ್ನು ಆಯ್ಕೆಮಾಡಿ.",
+    chooseFiles: "ಕಡತಗಳನ್ನು ಆಯ್ಕೆಮಾಡಿ",
+    fileHelp: "PDF / PPTX / HTML / JSON / ಪಠ್ಯ · ಕಡತಗಳು ನಿಮ್ಮ ಬ್ರೌಸರ್‌ನಲ್ಲೇ ಇರುತ್ತವೆ · ಅಪ್‌ಲೋಡ್ ಆಗುವುದಿಲ್ಲ",
+    clearSaved: "ಉಳಿಸಿದ ಸುದ್ದಿಗಳನ್ನು ಅಳಿಸಿ",
+    pdfPages: "PDF ಪುಟಗಳು",
+    allPages: "ಎಲ್ಲಾ ಪುಟಗಳು",
+    pageRangeHelp: "ಐಚ್ಛಿಕ: 1-5,8 ಎಂಬಂತೆ ಪುಟಗಳನ್ನು ನಮೂದಿಸಿ. ಖಾಲಿ ಬಿಟ್ಟರೆ ಎಲ್ಲಾ ಪುಟಗಳನ್ನು ಆಮದು ಮಾಡುತ್ತದೆ. ಮರುಆಮದು ಮಾಡಿದಾಗ ಆಯ್ಕೆ ಮಾಡಿದ ಪುಟಗಳಷ್ಟೇ ಬದಲಾಗುತ್ತವೆ.",
+    importHelpTitle: "ಪತ್ರಿಕೆ ಮತ್ತು Telegram ಕಡತಗಳನ್ನು ಆಮದು ಮಾಡುವ ವಿಧಾನ",
+    importStepOne: "ಕಡತಗಳನ್ನು ಆಯ್ಕೆಮಾಡಿ ಒತ್ತಿ. Downloads ತೆರೆಯಿರಿ, PDF, PPTX ಅಥವಾ ಬೆಂಬಲಿತ ಕಡತಗಳನ್ನು ಆಯ್ಕೆಮಾಡಿ. ಬೇಕಿದ್ದರೆ 1-5,8 ಎಂಬ PDF ಪುಟ ವ್ಯಾಪ್ತಿಯನ್ನು ನಮೂದಿಸಿ; ಎಲ್ಲಾ ಪುಟಗಳಿಗೆ ಖಾಲಿ ಬಿಡಿ.",
+    importStepTwo: "PDF‌ನಲ್ಲಿರುವ ಆಯ್ಕೆ ಮಾಡಬಹುದಾದ ಪಠ್ಯವನ್ನು ಪುಟದಿಂದ ಪುಟಕ್ಕೆ ಓದಲಾಗುತ್ತದೆ. PPTX ಪಠ್ಯವನ್ನು ಸಾಧನದಲ್ಲೇ ಓದಲಾಗುತ್ತದೆ. ಸ್ಲೈಡ್ ಚಿತ್ರಗಳನ್ನು OCR ಮೂಲಕ ಓದುವುದಿಲ್ಲ; ಹಳೆಯ .ppt ಕಡತವನ್ನು ಮೊದಲು .pptx ಆಗಿ ಉಳಿಸಿ.",
+    importStepThree: "ಸ್ಕ್ಯಾನ್ ಮಾಡಿದ PDF ಪುಟಗಳನ್ನು OCR ಗಾಗಿ ಬ್ರೌಸರ್‌ನಲ್ಲಿ ತಾತ್ಕಾಲಿಕವಾಗಿ ಚಿತ್ರಿಸಲಾಗುತ್ತದೆ. ಕಡಿಮೆ ವಿಶ್ವಾಸದ ಪಠ್ಯ, ಸಾಮಾನ್ಯ ಶೀರ್ಷಿಕೆ/ಅಡಿಪಠ್ಯ ಮತ್ತು ಸ್ಪಷ್ಟ ಜಾಹೀರಾತುಗಳನ್ನು ಫಿಲ್ಟರ್ ಮಾಡಲಾಗುತ್ತದೆ. ಉಳಿದ ಪಠ್ಯವನ್ನು ಅಂದಾಜಿನ ಆಧಾರದಲ್ಲಿ ಸುದ್ದಿಗಳಾಗಿ ವಿಂಗಡಿಸಲಾಗುತ್ತದೆ. ಪಠ್ಯ ಮಾತ್ರ ಉಳಿಯುತ್ತದೆ; ಪುಟದ ಚಿತ್ರಗಳನ್ನು ಉಳಿಸುವುದಿಲ್ಲ ಅಥವಾ ಅಪ್‌ಲೋಡ್ ಮಾಡುವುದಿಲ್ಲ. ಮರುಆಮದು ಮಾಡಿದಾಗ ಆಯ್ದ ಪುಟಗಳಷ್ಟೇ ಬದಲಾಗುತ್ತವೆ. ಕೆಲವು ಜಾಹೀರಾತು ಅಥವಾ ಸ್ಕ್ಯಾನ್ ದೋಷಗಳು ಉಳಿಯಬಹುದು.",
+    importStepFour: "OCR ಎಂಜಿನ್ ಮತ್ತು ಭಾಷಾ ಮಾದರಿಗಳು ಮೊದಲ ಬಳಕೆಯಲ್ಲಿ ಸಾರ್ವಜನಿಕ CDN‌ನಿಂದ ಇಳಿಯುತ್ತವೆ; ಪತ್ರಿಕೆಯ PDF ನಿಮ್ಮ ಸಾಧನದಲ್ಲೇ ಇರುತ್ತದೆ. ಮೊದಲ OCR ಸ್ವಲ್ಪ ಸಮಯ ತೆಗೆದುಕೊಳ್ಳಬಹುದು.",
+    importStepFive: "Telegram ಪೋಸ್ಟ್‌ಗಳಿಗಾಗಿ Telegram Desktop‌ನಲ್ಲಿ Settings → Advanced → Export Telegram data ತೆರೆಯಿರಿ, JSON ಅಥವಾ HTML ಆಗಿ ರಫ್ತು ಮಾಡಿ, ನಂತರ ಇಲ್ಲಿ ಆಮದುಮಾಡಿ.",
+    importPrivacy: "ಈ ಪುಟವು Downloads ಕಡತಗಳನ್ನು ಸ್ವಯಂಚಾಲಿತವಾಗಿ ಹುಡುಕುವುದಿಲ್ಲ. ಆಮದು ಮಾಡಲು ಬಯಸುವ ಕಡತಗಳನ್ನು ಮಾತ್ರ ಆಯ್ಕೆಮಾಡಿ. ಕಡತಗಳು ಬ್ರೌಸರ್‌ನಲ್ಲೇ ಸಂಸ್ಕರಿಸಲ್ಪಡುತ್ತವೆ; ಅಪ್‌ಲೋಡ್ ಆಗುವುದಿಲ್ಲ. ಆನ್‌ಲೈನ್ ಸುದ್ದಿಗೆ ಸಾರ್ವಜನಿಕ Bing News RSS ಮತ್ತು FreeJobAlert RSS ಫೀಡ್‌ಗಳು ಬಳಕೆಯಾಗುತ್ತವೆ. ಆನ್‌ಲೈನ್ ಸುದ್ದಿಗಾಗಿ start-local.ps1 ಚಾಲನೆ ಮಾಡಿ http://127.0.0.1:8765/ ತೆರೆಯಿರಿ. PDF.js, OCR ಮತ್ತು PPTX ಓದುಗ ಸಾರ್ವಜನಿಕ CDN‌ನಿಂದ ಲೋಡ್ ಆಗುತ್ತವೆ.",
+    yourImportedNews: "ನೀವು ಆಮದು ಮಾಡಿದ ಸುದ್ದಿಗಳು",
+    downloadBrief: "↓ ಸಂಗ್ರಹವನ್ನು ಡೌನ್‌ಲೋಡ್ ಮಾಡಿ",
+    itemsSaved: "ಉಳಿಸಿದ ಸುದ್ದಿಗಳು",
+    upscMatches: "UPSC ವಿಷಯ ಹೊಂದಾಣಿಕೆಗಳು",
+    karnatakaMentions: "ಕರ್ನಾಟಕ ಉಲ್ಲೇಖಗಳು",
+    searchNews: "ಆಮದು ಮಾಡಿದ ಸುದ್ದಿಗಳಲ್ಲಿ ಹುಡುಕಿ...",
+    filterByExam: "ಪರೀಕ್ಷೆಯ ಪ್ರಕಾರ ವಿಂಗಡಿಸಿ",
+    allNews: "ಎಲ್ಲಾ ಸುದ್ದಿಗಳು",
+    upsc: "UPSC",
+    karnatakaKpsc: "ಕರ್ನಾಟಕ KPSC",
+    emptyTitle: "ಪತ್ರಿಕೆ ಅಥವಾ ಪ್ರಸ್ತುತಿಯಿಂದ ನಿಮ್ಮ ದಿನದ ಸಂಗ್ರಹ ಪ್ರಾರಂಭಿಸಿ",
+    emptyDescription: "ಇಂಗ್ಲಿಷ್ ಅಥವಾ ಕನ್ನಡ ಪತ್ರಿಕೆಯ PDF, ಅಥವಾ PPTX ಪ್ರಸ್ತುತಿಯನ್ನು ಆಯ್ಕೆಮಾಡಿ. ಸ್ಕ್ಯಾನ್ ಪಠ್ಯವನ್ನು ಅಂದಾಜಿನ ಆಧಾರದಲ್ಲಿ ಸುದ್ದಿಗಳಾಗಿ ವಿಂಗಡಿಸಲಾಗುತ್ತದೆ. ವಿಷಯ ಟ್ಯಾಗ್‌ಗಳು ಕೀವರ್ಡ್ ಸಲಹೆಗಳು ಮಾತ್ರ.",
+    importDisclaimer: "ಪರೀಕ್ಷೆ/ವಿಷಯ ಗುರುತುಗಳು ಕೀವರ್ಡ್ ಹೊಂದಾಣಿಕೆ ಮತ್ತು ಕರ್ನಾಟಕ ಉಲ್ಲೇಖಗಳ ಆಧಾರಿತ; ಅವು ಅಧಿಕೃತ ಪರೀಕ್ಷಾ ವರ್ಗೀಕರಣವಲ್ಲ. OCR ಸುದ್ದಿಗಳ ವಿಂಗಡಣೆ ಅಂದಾಜಿನದ್ದು; ಮೂಲ ಪತ್ರಿಕೆಯಲ್ಲಿ ಪರಿಶೀಲಿಸಿ.",
+    dashboardLabel: "ಪ್ರಚಲಿತ ವಿದ್ಯಮಾನಗಳ ಫಲಕ",
+    footerPrivacy: "ಬಸವ ಕೇಡಮನೆ ಅಧ್ಯಯನ ಕೇಂದ್ರ · ಕಡತಗಳು ಈ ಸಾಧನದಲ್ಲೇ ಇರುತ್ತವೆ",
+    prepareWith: "ಸಿದ್ಧರಾಗಿ",
+    purpose: "ಗುರಿಯೊಂದಿಗೆ",
+    onlineJobsEmpty: "ಇತ್ತೀಚಿನ ನೇಮಕಾತಿ ಸುದ್ದಿಗಳು ಸಿಗಲಿಲ್ಲ. ಲಭ್ಯ ಪ್ರಕಟಣೆಗಳಿಗಾಗಿ ಮೇಲಿನ ಅಧಿಕೃತ ನೇಮಕಾತಿ ತಾಣಗಳನ್ನು ಪರಿಶೀಲಿಸಿ.",
+    onlineEmpty: "ಈ ವಿಭಾಗಕ್ಕೆ ಸುದ್ದಿ ಸಿಗಲಿಲ್ಲ. ಸ್ವಲ್ಪ ಸಮಯದ ನಂತರ ಮರುಲೋಡ್ ಮಾಡಿ.",
+    readingFile: "{file} ಕಡತವನ್ನು ಸ್ಥಳೀಯವಾಗಿ ಓದಲಾಗುತ್ತಿದೆ…",
+    scannedPages: "{file} ಕಡೆ ಸ್ಕ್ಯಾನ್ ಅಥವಾ ಫಾಂಟ್-ಎನ್ಕೋಡ್ ಮಾಡಿದ ಪುಟಗಳು ಕಂಡುಬಂದಿವೆ. {language} OCR ಅನ್ನು ಲೋಡ್ ಮಾಡಲಾಗುತ್ತಿದೆ…",
+    loadingOcrModel: "{file} ಗಾಗಿ {language} OCR ಮಾದರಿಯನ್ನು ಲೋಡ್ ಮಾಡಲಾಗುತ್ತಿದೆ…",
+    ocrProgress: "OCR ಪ್ರಗತಿ: {file}, ಪುಟ {page}/{total} — {status}{progress}",
+    renderingPage: "ಸ್ಕ್ಯಾನ್ ಮಾಡಿದ ಪುಟ {page}/{total} ಅನ್ನು ಸ್ಥಳೀಯ OCR ಗಾಗಿ ರೆಂಡರ್ ಮಾಡಲಾಗುತ್ತಿದೆ…",
+    processingFile: "{file} ಕಡತವನ್ನು ಓದಲಾಗುತ್ತಿದೆ: {unit} {page}/{total} ಪ್ರಕ್ರಿಯೆಗೊಳಿಸಲಾಗಿದೆ · ಈಗಾಗಲೇ {count} ವಿಷಯಗಳನ್ನು ಉಳಿಸಲಾಗಿದೆ.",
+    importToast: "{summary} {error}",
+    savedStoriesCleared: "ಉಳಿಸಿದ ಸುದ್ದಿಗಳು ಅಳಿಸಲಾದವು.",
+    clearConfirm: "ಈ ಬ್ರೌಸರ್‌ನಲ್ಲಿ ಉಳಿಸಲಾದ ಎಲ್ಲಾ ಆಮದು ಮಾಡಿದ ಸುದ್ದಿಗಳನ್ನು ಅಳಿಸಬೇಕೇ? ಇದನ್ನು ರದ್ದುಮಾಡಲಾಗುವುದಿಲ್ಲ.",
+    clearStorageFull: "ಬ್ರೌಸರ್ ಸಂಗ್ರಹ ತುಂಬಿದೆ. ನಿಮ್ಮ ಸಂಗ್ರಹವನ್ನು ಡೌನ್ಲೋಡ್ ಮಾಡಿ ಮತ್ತು ಕೆಲವು ಉಳಿಸಿದ ಸುದ್ದಿಗಳನ್ನು ಅಳಿಸಿ.",
+    saveFailure: "ಆಮದು ಮಾಡಿದ ಸುದ್ದಿಗಳ全部 ಉಳಿಯುವುದಿಲ್ಲ. ನಿಮ್ಮ ಸಂಗ್ರಹವನ್ನು ಡೌನ್‌ಲೋಡ್ ಮಾಡಿ ನಂತರ ನಿರ್ಗಮಿಸಿ.",
+    fullExtractedText: "ಪೂರ್ಣವಾಗಿ ಓದಿದ ಪಠ್ಯ ನೋಡಿ",
+    kannadaLanguage: "ಕನ್ನಡ",
+    upscRelevant: "UPSC ಸಂಬಂಧಿತ",
+    kpscKarnatakaLink: "KPSC · ಕರ್ನಾಟಕ ಸಂಬಂಧಿತ",
+    kpscGeneral: "KPSC · ಸಾಮಾನ್ಯ",
+    noStoriesMatch: "ಈ ಫಿಲ್ಟರ್‌ಗಳಿಗೆ ಸುದ್ದಿ ಹೊಂದಿಕೆಯಾಗಿಲ್ಲ",
+    tryDifferentFilters: "ಬೇರೆ ಹುಡುಕಾಟ ಪ್ರಯತ್ನಿಸಿ ಅಥವಾ ಪರೀಕ್ಷಾ ಫಿಲ್ಟರ್ ಬದಲಿಸಿ.",
+    emptyBriefTitle: "ಪತ್ರಿಕೆ ಅಥವಾ ಪ್ರಸ್ತುತಿಯಿಂದ ನಿಮ್ಮ ದಿನದ ಸಂಗ್ರಹ ಪ್ರಾರಂಭಿಸಿ",
+    chooseNewspaper: "ಇಂಗ್ಲಿಷ್ ಅಥವಾ ಕನ್ನಡ ಪತ್ರಿಕೆಯ PDF, ಅಥವಾ PPTX ಪ್ರಸ್ತುತಿಯನ್ನು ಆಯ್ಕೆಮಾಡಿ. ಸ್ಕ್ಯಾನ್ ಪಠ್ಯವನ್ನು ಅಂದಾಜಿನ ಆಧಾರದಲ್ಲಿ ಸುದ್ದಿಗಳಾಗಿ ವಿಂಗಡಿಸಲಾಗುತ್ತದೆ. ವಿಷಯ ಟ್ಯಾಗ್‌ಗಳು ಕೀವರ್ಡ್ ಸಲಹೆಗಳು ಮಾತ್ರ.",
+    searchUpdates: "ಸಾರ್ವಜನಿಕ RSS ಫೀಡ್‌ಗಳಲ್ಲಿ ಇತ್ತೀಚಿನ {section} ಸುದ್ದಿಗಳನ್ನು ಹುಡುಕಲಾಗುತ್ತಿದೆ…",
+    updatedItems: "{date} ರಂದು ನವೀಕರಿಸಲಾಗಿದೆ · {count} ಸುದ್ದಿ · {provider}",
+    updatedHeadlines: "{date} ರಂದು ನವೀಕರಿಸಲಾಗಿದೆ · {count} ಶೀರ್ಷಿಕೆ",
+    onlineLoadError: "ಆನ್‌ಲೈನ್ ಸುದ್ದಿ ಲೋಡ್ ಆಗಲಿಲ್ಲ: {error} start-local.ps1 ಚಾಲನೆ ಮಾಡಿ ಮರುಲೋಡ್ ಮಾಡಿ.",
+    clearConfirm: "ಈ ಬ್ರೌಸರ್‌ನಲ್ಲಿ ಉಳಿಸಿದ ಎಲ್ಲಾ ಸುದ್ದಿಗಳನ್ನು ಅಳಿಸಬೇಕೆ? ಇದನ್ನು ಹಿಂದಕ್ಕೆ ಪಡೆಯಲಾಗುವುದಿಲ್ಲ.",
+    cleared: "ಉಳಿಸಿದ ಸುದ್ದಿಗಳನ್ನು ಅಳಿಸಲಾಗಿದೆ.",
+    noImportedYet: "ಇನ್ನೂ ಪತ್ರಿಕೆ ಕಡತಗಳನ್ನು ಆಮದು ಮಾಡಿಲ್ಲ.",
+    readFile: "{file} ಅನ್ನು ಸಾಧನದಲ್ಲೇ ಓದಲಾಗುತ್ತಿದೆ…",
+    scannedPages: "{file} ನಲ್ಲಿ ಸ್ಕ್ಯಾನ್ ಅಥವಾ ಎನ್‌ಕೋಡ್ ಮಾಡಿದ ಪುಟಗಳು ಕಂಡುಬಂದಿವೆ. {language} OCR ಲೋಡ್ ಆಗುತ್ತಿದೆ…",
+    loadingOcr: "{file} ಗಾಗಿ {language} OCR ಮಾದರಿ ಲೋಡ್ ಆಗುತ್ತಿದೆ…",
+    ocrProgress: "OCR ಪ್ರಗತಿ: {file}, ಪುಟ {page}/{total} — {status}{progress}",
+    renderingPage: "ಸ್ಕ್ಯಾನ್ ಪುಟ {page}/{total} ಅನ್ನು ಸ್ಥಳೀಯ OCR ಗಾಗಿ ಸಿದ್ಧಪಡಿಸಲಾಗುತ್ತಿದೆ…",
+    processingFile: "{file} ಓದುತ್ತಿದೆ: {total}ರಲ್ಲಿ {page} {unit} ಮುಗಿದಿದೆ · ಇದುವರೆಗೆ {count} ಸುದ್ದಿ ಉಳಿಸಲಾಗಿದೆ.",
+    importSummary: "{count} ಹೊಸ ಸುದ್ದಿ ಆಮದು ಮಾಡಲಾಗಿದೆ{duplicates}{failures}.",
+    duplicateSummary: "; {count} ನಕಲು ಸುದ್ದಿ ಬಿಡಲಾಗಿದೆ",
+    failedFiles: "; {count} ಕಡತ ಪರಿಶೀಲನೆ ಅಗತ್ಯ",
+    paperPagesLoaded: "{count} ಉಳಿಸಿದ ಪತ್ರಿಕೆ ಪುಟಗಳನ್ನು ಈ ಬ್ರೌಸರ್‌ನಿಂದ ಲೋಡ್ ಮಾಡಲಾಗಿದೆ.",
+    clearStorageFull: "ಬ್ರೌಸರ್ ಸಂಗ್ರಹ ತುಂಬಿದೆ. ಸಂಗ್ರಹವನ್ನು ಡೌನ್‌ಲೋಡ್ ಮಾಡಿ, ಕೆಲವು ಉಳಿಸಿದ ಸುದ್ದಿಗಳನ್ನು ಅಳಿಸಿ.",
+    saveFailure: "ಎಲ್ಲಾ ಆಮದು ಮಾಡಿದ ಸುದ್ದಿಗಳನ್ನು ಉಳಿಸಲಾಗಲಿಲ್ಲ. ಹೊರಡುವ ಮೊದಲು ಸಂಗ್ರಹವನ್ನು ಡೌನ್‌ಲೋಡ್ ಮಾಡಿ.",
+    importToast: "{summary} {error}",
+    dateMissing: "ರಫ್ತು ಕಡತದಲ್ಲಿ ದಿನಾಂಕ ಇಲ್ಲ",
+    revisionFocus: "ಪುನರವಲೋಕನ: ಸಮಸ್ಯೆ, ಸಂಬಂಧಿತ ಸಂಸ್ಥೆ ಅಥವಾ ನೀತಿ ಮತ್ತು ಕರ್ನಾಟಕದ ಮೇಲಿನ ಪರಿಣಾಮವನ್ನು ಗುರುತಿಸಿ.",
+    widerRevisionFocus: "ಪುನರವಲೋಕನ: ಸಮಸ್ಯೆ, ಸಂಬಂಧಿತ ಸಂಸ್ಥೆ ಅಥವಾ ನೀತಿ ಮತ್ತು ಸಾರ್ವಜನಿಕರ ಮೇಲಿನ ಪರಿಣಾಮವನ್ನು ಗುರುತಿಸಿ.",
+    briefTitle: "ದೈನಂದಿನ ಪ್ರಚಲಿತ ವಿದ್ಯಮಾನಗಳು",
+    locallyExtractedNote: "ಸ್ಥಳೀಯವಾಗಿ ಓದಿದ ಪತ್ರಿಕೆ, ಪ್ರಸ್ತುತಿ ಅಥವಾ Telegram ಪಠ್ಯ; ಪರೀಕ್ಷಾ ಟ್ಯಾಗ್‌ಗಳು ಕೀವರ್ಡ್ ಆಧಾರಿತ. ಇವು AI ಸಾರಾಂಶಗಳು ಅಥವಾ ಪರಿಶೀಲಿತ ಸಂಗತಿಗಳಲ್ಲ.",
+    sourceLabel: "ಮೂಲ:",
+    topicsLabel: "ವಿಷಯಗಳು:",
+    examFocusLabel: "ಪರೀಕ್ಷಾ ಗಮನ:",
+    upscFocus: "UPSC ಸಂಬಂಧಿತ",
+    generalNews: "ಸಾಮಾನ್ಯ ಸುದ್ದಿ",
+    karnatakaLink: "ಕರ್ನಾಟಕ KPSC (ಕರ್ನಾಟಕ ಸಂಬಂಧಿತ)",
+    kpscGeneralFocus: "ಕರ್ನಾಟಕ KPSC (ಸಾಮಾನ್ಯ)",
+    polityTopic: "ರಾಜಕೀಯ ಮತ್ತು ಆಡಳಿತ",
+    economyTopic: "ಆರ್ಥಿಕತೆ",
+    environmentTopic: "ಪರಿಸರ",
+    scienceTopic: "ವಿಜ್ಞಾನ ಮತ್ತು ತಂತ್ರಜ್ಞಾನ",
+    internationalRelationsTopic: "ಅಂತರರಾಷ್ಟ್ರೀಯ ಸಂಬಂಧಗಳು",
+    societyTopic: "ಸಮಾಜ ಮತ್ತು ಆರೋಗ್ಯ",
+    securityTopic: "ಭದ್ರತೆ",
+    schemesTopic: "ಯೋಜನೆಗಳು ಮತ್ತು ಸಾರ್ವಜನಿಕ ನೀತಿ",
+  },
+};
+let currentLanguage = localStorage.getItem(languageStorageKey) === "kn" ? "kn" : "en";
+
+const sectionTranslationKey = {
+  national: "national",
+  international: "international",
+  karnataka: "karnatakaCurrentAffairs",
+  jobs: "governmentJobs",
+};
+
+function t(key, values = {}) {
+  const template = translations[currentLanguage][key] || translations.en[key] || key;
+  return template.replace(/\{(\w+)\}/g, (_, name) => String(values[name] ?? ""));
+}
+
+function sectionLabel(section) {
+  return t(sectionTranslationKey[section] || section);
+}
+
+function topicTranslationKey(topic) {
+  return ({
+    "Polity & governance": "polityTopic",
+    Economy: "economyTopic",
+    Environment: "environmentTopic",
+    "Science & technology": "scienceTopic",
+    "International relations": "internationalRelationsTopic",
+    "Society & health": "societyTopic",
+    Security: "securityTopic",
+    "Schemes & public policy": "schemesTopic",
+    "General affairs": "generalNews",
+  })[topic];
+}
+
+function applyLanguage(language) {
+  currentLanguage = language === "kn" ? "kn" : "en";
+  localStorage.setItem(languageStorageKey, currentLanguage);
+  document.documentElement.lang = currentLanguage === "kn" ? "kn" : "en";
+  document.querySelector("#language-select").value = currentLanguage;
+  document.querySelectorAll("[data-i18n]").forEach((element) => {
+    const translated = t(element.dataset.i18n);
+    if (element.id === "refresh-online") {
+      element.textContent = translated;
+    } else {
+      element.textContent = translated;
+    }
+  });
+  document.querySelectorAll("[data-i18n-placeholder]").forEach((element) => {
+    element.placeholder = t(element.dataset.i18nPlaceholder);
+  });
+  document.querySelectorAll("[data-i18n-aria]").forEach((element) => {
+    element.setAttribute("aria-label", t(element.dataset.i18nAria));
+  });
+  document.querySelector("#language-select").setAttribute("aria-label", t("languageLabel"));
+  const onlineStatus = document.querySelector("#online-status");
+  if (onlineCache.has(activeOnlineSection)) {
+    const cached = onlineCache.get(activeOnlineSection);
+    onlineStatus.textContent = t("updatedHeadlines", {
+      date: formatOnlineDate(cached.fetchedAt),
+      count: cached.items.length,
+    });
+    renderOnlineItems(cached.items);
+  } else {
+    onlineStatus.textContent = t("searchUpdates", { section: sectionLabel(activeOnlineSection) });
+  }
+  if (!onlineRequestInProgress) {
+    document.querySelector("#import-status").textContent = stories.length
+      ? t("paperPagesLoaded", { count: stories.length })
+      : t("noImportedYet");
+  }
+  render();
+}
 
 const topics = [
   { name: "Polity & governance", pattern: /\b(parliament|supreme court|high court|constitution|constitutional|bill|act|judg(?:e)?ment|election|electoral|governance|federal|cabinet|ordinance|commission|rights|amendment)\b|ಸಂವಿಧಾನ|ಸುಪ್ರೀಂ ಕೋರ್ಟ್|ಹೈಕೋರ್ಟ್|ಚುನಾವಣೆ|ಸರ್ಕಾರ|ವಿಧಾನಸಭೆ/i },
@@ -80,7 +423,7 @@ function persistStories() {
     return true;
   } catch (error) {
     console.error("Could not save current affairs stories.", error);
-    showToast("Browser storage is full. Download your brief and clear some saved stories.");
+    showToast(t("clearStorageFull"));
     return false;
   }
 }
@@ -420,19 +763,31 @@ async function fromPdfFile(file, onPageRead) {
 
       if (text.length < 35 || hasCorruptText(text) || !hasReadableText(text)) {
         if (!ocrWorkers.length) {
-          importStatus.textContent = `Scanned or font-encoded pages found in ${file.name}. Loading ${ocrLanguage === "kan" ? "Kannada" : "English"} OCR…`;
+          importStatus.textContent = t("scannedPages", {
+            file: file.name,
+            language: ocrLanguage === "kan" ? "Kannada" : "English",
+          });
           const tesseract = await loadTesseract();
           let lastLoggerUpdate = 0;
           const logger = (event) => {
             const now = Date.now();
             if (event.status && (now - lastLoggerUpdate > 800 || event.status === "recognizing text")) {
               const progress = Number.isFinite(event.progress) ? ` ${Math.round(event.progress * 100)}%` : "";
-              importStatus.textContent = `OCR in progress: ${file.name}, page ${pageNumber} of ${pageCount} — ${event.status}${progress}`;
+              importStatus.textContent = t("ocrProgress", {
+                file: file.name,
+                page: pageNumber,
+                total: pageCount,
+                status: event.status,
+                progress,
+              });
               lastLoggerUpdate = now;
             }
           };
           try {
-            importStatus.textContent = `Loading ${ocrLanguage === "kan" ? "Kannada" : "English"} OCR model for ${file.name}…`;
+            importStatus.textContent = t("loadingOcrModel", {
+              file: file.name,
+              language: ocrLanguage === "kan" ? "Kannada" : "English",
+            });
             const worker = await tesseract.createWorker(ocrLanguage, 1, { langPath: ocrModel.langPath, gzip: false, logger });
             ocrWorkers.push({ language: ocrLanguage, worker });
           } catch (error) {
@@ -440,7 +795,10 @@ async function fromPdfFile(file, onPageRead) {
           }
         }
 
-        importStatus.textContent = `Rendering scanned page ${pageNumber} of ${pageCount} for local OCR…`;
+        importStatus.textContent = t("renderingPage", {
+          page: pageNumber,
+          total: pageCount,
+        });
         const viewport = page.getViewport({ scale: 1.25 });
         const canvas = window.document.createElement("canvas");
         canvas.width = Math.ceil(viewport.width);
@@ -615,8 +973,8 @@ async function parseFile(file, onPageRead) {
 }
 
 function displayDate(date) {
-  if (!date) return "Date not included in export";
-  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(date));
+  if (!date) return t("dateMissing");
+  return new Intl.DateTimeFormat(currentLanguage === "kn" ? "kn-IN" : "en-IN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(date));
 }
 
 function matchesSearch(story, query) {
@@ -648,7 +1006,7 @@ function createStoryCard(story) {
   if (fullText) {
     fullText.className = "story-full-text";
     const summary = document.createElement("summary");
-    summary.textContent = "Read full extracted text";
+    summary.textContent = t("fullExtractedText");
     const fullTextBody = document.createElement("p");
     fullTextBody.textContent = displayText;
     fullText.append(summary, fullTextBody);
@@ -659,24 +1017,24 @@ function createStoryCard(story) {
   story.topics.forEach((topic) => {
     const tag = document.createElement("span");
     tag.className = "topic-tag";
-    tag.textContent = topic;
+    tag.textContent = topicTranslationKey(topic) ? t(topicTranslationKey(topic)) : topic;
     tags.append(tag);
   });
   if (story.language === "Kannada") {
     const languageTag = document.createElement("span");
     languageTag.className = "language-tag";
-    languageTag.textContent = "ಕನ್ನಡ · Kannada";
+    languageTag.textContent = t("kannadaLanguage");
     tags.append(languageTag);
   }
   if (story.upsc) {
     const upsc = document.createElement("span");
     upsc.className = "exam-tag upsc-tag";
-    upsc.textContent = "UPSC-relevant";
+    upsc.textContent = t("upscRelevant");
     tags.append(upsc);
   }
   const kpsc = document.createElement("span");
   kpsc.className = story.karnataka ? "exam-tag kpsc-tag" : "exam-tag general-tag";
-  kpsc.textContent = story.karnataka ? "KPSC · Karnataka link" : "KPSC · General";
+  kpsc.textContent = story.karnataka ? t("kpscKarnatakaLink") : t("kpscGeneral");
   tags.append(kpsc);
 
   article.append(meta, heading, body);
@@ -698,16 +1056,16 @@ function render() {
   storyList.hidden = visible.length === 0;
   if (stories.length > 0 && visible.length === 0) {
     emptyState.hidden = false;
-    emptyState.querySelector("h3").textContent = "No stories match these filters";
-    emptyState.querySelector("p").textContent = "Try another search or switch the exam filter.";
+    emptyState.querySelector("h3").textContent = t("noStoriesMatch");
+    emptyState.querySelector("p").textContent = t("tryDifferentFilters");
   } else {
-    emptyState.querySelector("h3").textContent = "Your daily brief starts with a newspaper or presentation";
-    emptyState.querySelector("p").textContent = "Choose an English or Kannada newspaper PDF, or a PPTX presentation. Scanned newspaper text is split into best-effort article cards; presentation slides use their title and text. Topic tags are keyword suggestions, not verified exam classifications.";
+    emptyState.querySelector("h3").textContent = t("emptyBriefTitle");
+    emptyState.querySelector("p").textContent = t("chooseNewspaper");
   }
   document.querySelector("#story-count").textContent = String(stories.length);
   document.querySelector("#upsc-count").textContent = String(stories.filter((story) => story.upsc).length);
   document.querySelector("#kpsc-count").textContent = String(stories.filter((story) => story.karnataka).length);
-  document.querySelector("#brief-date").textContent = new Intl.DateTimeFormat(undefined, { dateStyle: "full" }).format(new Date());
+  document.querySelector("#brief-date").textContent = new Intl.DateTimeFormat(currentLanguage === "kn" ? "kn-IN" : "en-IN", { dateStyle: "full" }).format(new Date());
   downloadButton.disabled = stories.length === 0;
 }
 
@@ -726,19 +1084,22 @@ function formatOnlineDate(value) {
   const date = new Date(normalized || "");
   return Number.isNaN(date.getTime())
     ? "Recent"
-    : new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date);
+    : new Intl.DateTimeFormat(currentLanguage === "kn" ? "kn-IN" : "en-IN", { dateStyle: "medium", timeStyle: "short" }).format(date);
 }
 
 function renderOnlineItems(items) {
   const list = document.querySelector("#online-list");
-  const safeItems = Array.isArray(items) ? items.slice(0, maximumOnlineItems) : [];
+  const allItems = Array.isArray(items) ? items.slice(0, maximumFetchedOnlineItems) : [];
+  const pageCount = Math.ceil(allItems.length / maximumOnlineItems);
+  activeOnlinePage = Math.min(Math.max(activeOnlinePage, 1), Math.max(pageCount, 1));
+  const firstItemIndex = (activeOnlinePage - 1) * maximumOnlineItems;
+  const safeItems = allItems.slice(firstItemIndex, firstItemIndex + maximumOnlineItems);
   list.replaceChildren();
+  renderOnlinePagination(allItems.length);
   if (!safeItems.length) {
     const empty = document.createElement("p");
     empty.className = "online-empty";
-    empty.textContent = activeOnlineSection === "jobs"
-      ? "No recent recruitment news mentions were returned. Use the official recruitment portals above to check open notices."
-      : "No headlines were returned for this section. Try refreshing later.";
+    empty.textContent = activeOnlineSection === "jobs" ? t("onlineJobsEmpty") : t("onlineEmpty");
     list.append(empty);
     return;
   }
@@ -772,32 +1133,64 @@ function renderOnlineItems(items) {
   }
 }
 
+function renderOnlinePagination(totalItems) {
+  const pagination = document.querySelector("#online-pagination");
+  const pageCount = Math.ceil(totalItems / maximumOnlineItems);
+  pagination.replaceChildren();
+  pagination.hidden = pageCount <= 1;
+  if (pagination.hidden) return;
+
+  pagination.setAttribute("aria-label", t("headlinePages"));
+  const addButton = (label, page, disabled = false, current = false) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "page-button";
+    button.textContent = label;
+    button.disabled = disabled;
+    if (current) button.setAttribute("aria-current", "page");
+    button.addEventListener("click", () => {
+      activeOnlinePage = page;
+      renderOnlineItems(onlineCache.get(activeOnlineSection)?.items || []);
+      document.querySelector("#online-list").scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    pagination.append(button);
+  };
+
+  addButton(t("previousPage"), activeOnlinePage - 1, activeOnlinePage === 1);
+  for (let page = 1; page <= pageCount; page += 1) {
+    addButton(t("pageNumber", { page }), page, false, page === activeOnlinePage);
+  }
+  addButton(t("nextPage"), activeOnlinePage + 1, activeOnlinePage === pageCount);
+  const pageStatus = document.createElement("span");
+  pageStatus.className = "page-count";
+  pageStatus.textContent = t("pageCount", { page: activeOnlinePage, total: pageCount });
+  pagination.append(pageStatus);
+}
+
 async function loadOnlineUpdates(section = activeOnlineSection, force = false) {
   if (onlineRequestInProgress) return;
   activeOnlineSection = section;
+  activeOnlinePage = 1;
   const status = document.querySelector("#online-status");
   const refreshButton = document.querySelector("#refresh-online");
   const officialLinks = document.querySelector("#official-job-links");
   const tabs = [...document.querySelectorAll("[data-online-section]")];
-  const labels = {
-    national: "national",
-    international: "international",
-    karnataka: "Karnataka current-affairs",
-    jobs: "government job",
-  };
   tabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.onlineSection === section));
   officialLinks.hidden = section !== "jobs";
 
   const cached = onlineCache.get(section);
   if (!force && cached && Date.now() - cached.savedAt < 5 * 60 * 1000) {
     renderOnlineItems(cached.items);
-    status.textContent = `Updated ${formatOnlineDate(cached.fetchedAt)} · ${Math.min(cached.items.length, maximumOnlineItems)} headline(s)`;
+    status.textContent = t("updatedHeadlines", {
+      date: formatOnlineDate(cached.fetchedAt),
+      count: cached.items.length,
+    });
     return;
   }
 
   onlineRequestInProgress = true;
   refreshButton.disabled = true;
-  status.textContent = `Searching recent ${labels[section]} updates through public RSS feeds…`;
+  status.textContent = t("searchUpdates", { section: sectionLabel(section) });
   try {
     const localApiUrls = [...new Set([
       "http://127.0.0.1:8766/api/news",
@@ -823,18 +1216,27 @@ async function loadOnlineUpdates(section = activeOnlineSection, force = false) {
       }
     }
     if (!data && lastError) throw lastError;
-    const items = Array.isArray(data?.items) ? data.items.slice(0, maximumOnlineItems) : [];
+    const items = Array.isArray(data?.items) ? data.items.slice(0, maximumFetchedOnlineItems) : [];
     onlineCache.set(section, { items, fetchedAt: data.fetchedAt, savedAt: Date.now() });
     renderOnlineItems(items);
-    status.textContent = `Updated ${formatOnlineDate(data.fetchedAt)} · ${items.length} item(s) · ${data.provider || "public RSS"}`;
+    status.textContent = t("updatedItems", {
+      date: formatOnlineDate(data.fetchedAt),
+      count: items.length,
+      provider: data.provider || "public RSS",
+    });
   } catch (error) {
-    status.textContent = `Could not load online updates: ${error.message} Start start-local.ps1 and refresh.`;
+    status.textContent = t("onlineLoadError", { error: error.message });
     document.querySelector("#online-list").replaceChildren();
   } finally {
     onlineRequestInProgress = false;
     refreshButton.disabled = false;
   }
+
 }
+
+document.querySelector("#language-select").addEventListener("change", (event) => {
+  applyLanguage(event.currentTarget.value);
+});
 
 document.querySelectorAll("[data-online-section]").forEach((button) => {
   button.addEventListener("click", () => loadOnlineUpdates(button.dataset.onlineSection, true));
@@ -865,7 +1267,7 @@ fileInput.addEventListener("change", async () => {
   for (const file of files) {
     let removedPreviousImport = false;
     try {
-      importStatus.textContent = `Reading ${file.name} locally…`;
+      importStatus.textContent = t("readingFile", { file: file.name });
       const result = await parseFile(file, (story, pageNumber, pageCount) => {
         if (!removedPreviousImport) {
           const fileMarker = `${file.name.toLowerCase()}-page-`;
@@ -886,7 +1288,13 @@ fileInput.addEventListener("change", async () => {
         persistStories();
         render();
         const unit = file.name.toLowerCase().endsWith(".pptx") ? "slide" : "page";
-        importStatus.textContent = `Reading ${file.name}: ${unit} ${pageNumber} of ${pageCount} processed · ${stories.length} item(s) saved so far.`;
+        importStatus.textContent = t("processingFile", {
+          file: file.name,
+          unit,
+          page: pageNumber,
+          total: pageCount,
+          count: stories.length,
+        });
       });
       imported.push(...result.stories);
       if (result.pageCount) {
@@ -911,7 +1319,13 @@ fileInput.addEventListener("change", async () => {
   const summary = `${unique.length} new item(s) imported${imported.length - unique.length ? `; ${imported.length - unique.length} duplicate(s) skipped` : ""}${failedFiles ? `; ${failedFiles} file(s) need attention` : ""}.`;
   const details = [...importNotes, ...errors].join(" ");
   importStatus.textContent = details ? `${summary} ${details}` : summary;
-  showToast(errors.length ? `${summary} ${errors[0]}` : saved ? summary : "Imported stories could not all be saved. Download your brief before leaving.");
+  showToast(
+    errors.length
+      ? t("importToast", { summary, error: errors[0] })
+      : saved
+        ? summary
+        : t("saveFailure")
+  );
   fileInput.value = "";
 });
 
@@ -926,11 +1340,11 @@ document.querySelectorAll(".filter-tab").forEach((button) => {
 
 document.querySelector("#clear-button").addEventListener("click", () => {
   if (!stories.length) return;
-  if (!window.confirm("Clear all imported stories saved in this browser? This cannot be undone.")) return;
+  if (!window.confirm(t("clearConfirm"))) return;
   stories = [];
   persistStories();
   render();
-  importStatus.textContent = "Saved stories cleared.";
+  importStatus.textContent = t("savedStoriesCleared");
 });
 
 downloadButton.addEventListener("click", () => {
@@ -962,6 +1376,6 @@ downloadButton.addEventListener("click", () => {
   URL.revokeObjectURL(url);
 });
 
-render();
-if (stories.length) importStatus.textContent = `${stories.length} saved newspaper page(s) loaded from this browser.`;
+applyLanguage(currentLanguage);
+if (stories.length) importStatus.textContent = t("paperPagesLoaded", { count: stories.length });
 loadOnlineUpdates("national");

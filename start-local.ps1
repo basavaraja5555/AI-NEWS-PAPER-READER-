@@ -19,6 +19,7 @@ if (-not $engine) {
 $listener = New-Object System.Net.HttpListener
 $listener.Prefixes.Add("http://127.0.0.1:$Port/")
 $newsCache = @{}
+$maximumNewsItems = 50
 
 function Send-Response {
   param(
@@ -122,7 +123,7 @@ try {
         $successfulFeeds = 0
         $lastFeedError = $null
         foreach ($feedUri in $feedUris) {
-          if ($articles.Count -ge 10) { break }
+          if ($articles.Count -ge $maximumNewsItems) { break }
           try {
             $feedResponse = Invoke-WebRequest -Uri $feedUri -TimeoutSec 30 -UseBasicParsing -Headers @{
               "User-Agent" = "Mozilla/5.0 (compatible; CurrentDesk/1.0)"
@@ -168,11 +169,11 @@ try {
               }
               publishedAt = $publishedAt
             }
-            if ($articles.Count -ge 10) { break }
+            if ($articles.Count -ge $maximumNewsItems) { break }
           }
         }
         if ($successfulFeeds -eq 0 -and $lastFeedError) { throw $lastFeedError }
-        $articles = @($articles | Sort-Object { [DateTime]::Parse($_.publishedAt) } -Descending | Select-Object -First 10)
+        $articles = @($articles | Sort-Object { [DateTime]::Parse($_.publishedAt) } -Descending | Select-Object -First $maximumNewsItems)
         $payload = @{
           section = $section
           provider = $provider
